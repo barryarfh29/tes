@@ -4,11 +4,10 @@ import random
 from pyrogram import Client, errors
 
 # --- [ KONFIGURASI ] ---
-# Di Easypanel, pastikan Anda sudah mengisi Environment Variables ini
 API_ID = int(os.getenv("API_ID", 32005133))
 API_HASH = os.getenv("API_HASH", "d14bb5b27de14d96aebc9103c99f43af")
 SESSION_STRING = os.getenv("SESSION_STRING") 
-SOURCE_CHAT = -1002337008596 # ID VVIP SUPER MALAY
+TARGET_ID = -1002337008596 
 # -----------------------
 
 app = Client(
@@ -21,85 +20,77 @@ app = Client(
 async def main():
     async with app:
         print("\n" + "="*50)
-        print("   USERBOT SCRAPER V3 - ANTI PEER INVALID   ")
+        print("   USERBOT V4 - DIALOG DISCOVERY MODE   ")
         print("="*50)
         
-        # 1. MEKANISME SINKRONISASI ID (FIX VALUEERROR)
-        print(f"[*] Mencoba mengenali ID: {SOURCE_CHAT}...")
-        try:
-            # Paksa ambil info chat agar session mengenali peer ID ini
-            target = await app.get_chat(SOURCE_CHAT)
-            print(f"[V] Berhasil Terhubung ke: {target.title}")
-        except Exception as e:
-            print(f"[!] Gagal resolve ID secara langsung: {e}")
-            print("[*] Mencoba pancingan via get_messages...")
-            try:
-                # Ambil 1 pesan terakhir sebagai pancingan database session
-                async for _ in app.get_chat_history(SOURCE_CHAT, limit=1):
-                    break
-                print("[V] Sinkronisasi ID berhasil via history pancingan.")
-            except Exception as e2:
-                print(f"[X] Gagal Total: {e2}")
-                print("[?] Pastikan akun Anda sudah JOIN di channel tersebut!")
-                return
+        target_chat = None
 
-        # 2. PERSIAPAN FOLDER DOWNLOAD
-        # Folder ini harus di-mount ke Volume di Easypanel (/app/downloads)
+        # 1. SEARCHING VIA DIALOGS (METODE PALING AMPUH UNTUK USERBOT)
+        print("[*] Mencari channel di daftar chat akun Anda...")
+        try:
+            async for dialog in app.get_dialogs():
+                if dialog.chat.id == TARGET_ID:
+                    target_chat = dialog.chat
+                    print(f"[V] Channel Ditemukan: {target_chat.title}")
+                    break
+            
+            if not target_chat:
+                print("[!] ID tidak ditemukan di daftar chat. Mencoba akses langsung...")
+                target_chat = await app.get_chat(TARGET_ID)
+                print(f"[V] Berhasil akses via get_chat: {target_chat.title}")
+
+        except Exception as e:
+            print(f"[X] Gagal sinkronisasi: {e}")
+            print("[?] Pastikan akun sudah JOIN dan scroll history di HP dulu.")
+            return
+
+        # 2. PERSIAPAN FOLDER
         download_path = "downloads"
         if not os.path.exists(download_path):
             os.makedirs(download_path)
 
-        # 3. PROSES PENGAMBILAN MEDIA
-        print("[*] Memulai pemindaian media (Baru -> Lama)...\n")
+        # 3. DOWNLOAD MEDIA
+        print(f"[*] Memulai pengambilan dari {target_chat.title}...\n")
         
         success_count = 0
-        batch_limit = 5 # Download 5 file lalu istirahat
-
-        async for message in app.get_chat_history(SOURCE_CHAT):
-            # Hanya ambil Video atau Dokumen (Video sering dikirim sebagai Dokumen)
+        async for message in app.get_chat_history(target_chat.id):
             if message.video or message.document:
                 msg_id = message.id
-                file_ext = ".mp4" # Asumsi default video
-                file_name = f"{download_path}/media_{msg_id}{file_ext}"
+                file_name = f"{download_path}/media_{msg_id}.mp4"
 
-                # Cek jika file sudah ada (Auto-Resume)
                 if os.path.exists(file_name):
                     continue
 
                 try:
                     media = message.video or message.document
+                    # Lewati jika ukuran file tidak wajar (opsional)
+                    if not media: continue
+                    
                     size_mb = media.file_size / (1024 * 1024)
-
                     print(f"[*] [{msg_id}] Mengunduh {round(size_mb, 2)} MB...")
                     
-                    # Proses Download ke Folder Volume
                     await message.download(file_name=file_name)
                     
                     success_count += 1
                     print(f"[OK] Tersimpan: media_{msg_id}.mp4")
 
-                    # JEDA DINAMIS (Agar tidak kena ban/flood)
-                    if success_count % batch_limit == 0:
-                        wait = random.randint(300, 600) # Istirahat 5-10 menit tiap 5 file
-                        print(f"\n--- Batch Selesai. Istirahat {wait} detik (Safety) ---\n")
+                    # Jeda Keamanan (Batch 5 file)
+                    if success_count % 5 == 0:
+                        wait = random.randint(300, 600)
+                        print(f"\n--- Batch Selesai. Istirahat {wait} detik ---\n")
                     else:
-                        wait = random.randint(60, 120) # Jeda antar file 1-2 menit
-                        print(f"--- Menunggu {wait} detik ---")
+                        wait = random.randint(60, 120)
+                        print(f"--- Jeda: {wait} detik ---")
                     
                     await asyncio.sleep(wait)
 
                 except errors.FloodWait as e:
-                    print(f"[!] Terlalu Cepat! Telegram meminta istirahat {e.value} detik.")
+                    print(f"[!] FloodWait: Tidur {e.value} detik.")
                     await asyncio.sleep(e.value)
                 except Exception as e:
-                    print(f"[!] Gagal mengunduh ID {msg_id}: {e}")
+                    print(f"[!] Error ID {msg_id}: {e}")
 
-        print("\n" + "="*50)
-        print(f" SELESAI: Berhasil mengamankan {success_count} file.")
-        print("="*50)
+        print(f"\n--- Selesai! Berhasil mengamankan {success_count} file ---")
 
 if __name__ == "__main__":
-    try:
-        app.run(main())
-    except Exception as e:
-        print(f"[FATAL] Script berhenti: {e}")
+    app.run(main())
